@@ -1,17 +1,19 @@
 name: 月次収支レポート自動生成
 
 on:
+  # data/ フォルダにCSVがpushされたら自動実行
+  push:
+    paths:
+      - "data/*.csv"
+    branches:
+      - main
+
+  # 毎月末にリマインド（data/にCSVがあれば処理）
   schedule:
-    # UTC 14:00 = JST 23:00（毎月28-31日に実行）
     - cron: "0 14 28-31 * *"
+
+  # 手動実行
   workflow_dispatch:
-    inputs:
-      year:
-        description: "対象年 (例: 2025)"
-        required: false
-      month:
-        description: "対象月 (例: 3)"
-        required: false
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
@@ -19,24 +21,22 @@ env:
 jobs:
   generate-report:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 10
 
     steps:
+      # スケジュール実行時の月末チェック
       - name: 月末日チェック
         id: check-last-day
         run: |
           if [ "${{ github.event_name }}" = "schedule" ]; then
-            TODAY=$(date -u +%d)
             TOMORROW=$(date -u -d "+1 day" +%d)
             if [ "$TOMORROW" != "01" ]; then
-              echo "今日は月末ではありません (${TODAY}日)。スキップします。"
+              echo "今日は月末ではありません。スキップします。"
               echo "is_last_day=false" >> "$GITHUB_OUTPUT"
             else
-              echo "月末日です (${TODAY}日)。レポートを生成します。"
               echo "is_last_day=true" >> "$GITHUB_OUTPUT"
             fi
           else
-            echo "手動実行のため、月末チェックをスキップします。"
             echo "is_last_day=true" >> "$GITHUB_OUTPUT"
           fi
 
@@ -44,72 +44,64 @@ jobs:
         if: steps.check-last-day.outputs.is_last_day == 'true'
         uses: actions/checkout@v4
 
-      - name: Python セットアップ
+      - name: CSVファイルの存在チェック
         if: steps.check-last-day.outputs.is_last_day == 'true'
+        id: check-csv
+        run: |
+          CSV_COUNT=$(find data/ -name "*.csv" 2>/dev/null | wc -l)
+          echo "csv_count=$CSV_COUNT" >> "$GITHUB_OUTPUT"
+          if [ "$CSV_COUNT" -eq 0 ]; then
+            echo "::warning::data/ フォルダにCSVファイルがありません。"
+            echo "マネーフォワードからCSVをダウンロードし、data/ フォルダにpushしてください。"
+          else
+            echo "CSVファイルが ${CSV_COUNT} 件見つかりました:"
+            ls -la data/*.csv
+          fi
+
+      - name: Python セットアップ
+        if: steps.check-last-day.outputs.is_last_day == 'true' && steps.check-csv.outputs.csv_count != '0'
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
           cache: "pip"
 
       - name: 依存パッケージをインストール
-        if: steps.check-last-day.outputs.is_last_day == 'true'
-        run: |
-          pip install -r requirements.txt
-          pip install playwright
-          playwright install --with-deps chromium
+        if: steps.check-last-day.outputs.is_last_day == 'true' && steps.check-csv.outputs.csv_count != '0'
+        run: pip install -r requirements.txt
 
       - name: Secrets設定チェック
-        if: steps.check-last-day.outputs.is_last_day == 'true'
+        if: steps.check-last-day.outputs.is_last_day == 'true' && steps.check-csv.outputs.csv_count != '0'
         env:
-          MF_EMAIL: ${{ secrets.MF_EMAIL }}
-          MF_PASSWORD: ${{ secrets.MF_PASSWORD }}
           GOOGLE_CREDENTIALS_JSON: ${{ secrets.GOOGLE_CREDENTIALS_JSON }}
           SPREADSHEET_ID: ${{ secrets.SPREADSHEET_ID }}
         run: |
-          echo "=== Secrets設定状況 ==="
-          if [ -z "$MF_EMAIL" ]; then echo "❌ MF_EMAIL が未設定です"; else echo "✅ MF_EMAIL 設定済み"; fi
-          if [ -z "$MF_PASSWORD" ]; then echo "❌ MF_PASSWORD が未設定です"; else echo "✅ MF_PASSWORD 設定済み"; fi
-          if [ -z "$GOOGLE_CREDENTIALS_JSON" ]; then echo "❌ GOOGLE_CREDENTIALS_JSON が未設定です"; else echo "✅ GOOGLE_CREDENTIALS_JSON 設定済み"; fi
-          if [ -z "$SPREADSHEET_ID" ]; then echo "❌ SPREADSHEET_ID が未設定です"; else echo "✅ SPREADSHEET_ID 設定済み"; fi
-
-          if [ -z "$MF_EMAIL" ] || [ -z "$MF_PASSWORD" ]; then
-            echo ""
-            echo "::error::MF_EMAIL または MF_PASSWORD が設定されていません。Settings → Secrets → Actions で登録してください。"
-            exit 1
-          fi
-
-      - name: 対象年月を決定
-        if: steps.check-last-day.outputs.is_last_day == 'true'
-        id: target-date
-        run: |
-          if [ -n "${{ inputs.year }}" ] && [ -n "${{ inputs.month }}" ]; then
-            echo "year=${{ inputs.year }}" >> "$GITHUB_OUTPUT"
-            echo "month=${{ inputs.month }}" >> "$GITHUB_OUTPUT"
-          else
-            echo "year=$(date -u +%Y)" >> "$GITHUB_OUTPUT"
-            echo "month=$(date -u +%-m)" >> "$GITHUB_OUTPUT"
-          fi
-          echo "対象: $(cat "$GITHUB_OUTPUT")"
+          HAS_SHEETS=true
+          if [ -z "$GOOGLE_CREDENTIALS_JSON" ]; then echo "⚠ GOOGLE_CREDENTIALS_JSON 未設定 → Excel出力のみ"; HAS_SHEETS=false; fi
+          if [ -z "$SPREADSHEET_ID" ]; then echo "⚠ SPREADSHEET_ID 未設定 → Excel出力のみ"; HAS_SHEETS=false; fi
+          echo "has_sheets=$HAS_SHEETS" >> "$GITHUB_OUTPUT"
 
       - name: レポートを生成する
-        if: steps.check-last-day.outputs.is_last_day == 'true'
+        if: steps.check-last-day.outputs.is_last_day == 'true' && steps.check-csv.outputs.csv_count != '0'
         working-directory: src
         env:
-          MF_EMAIL: ${{ secrets.MF_EMAIL }}
-          MF_PASSWORD: ${{ secrets.MF_PASSWORD }}
           GOOGLE_CREDENTIALS_JSON: ${{ secrets.GOOGLE_CREDENTIALS_JSON }}
           SPREADSHEET_ID: ${{ secrets.SPREADSHEET_ID }}
-          PLAYWRIGHT_BROWSERS_PATH: /home/runner/.cache/ms-playwright
         run: |
-          python auto_run.py \
-            --year ${{ steps.target-date.outputs.year }} \
-            --month ${{ steps.target-date.outputs.month }}
+          # data/ 内の全CSVを結合して処理
+          CSV_FILES=$(find ../data/ -name "*.csv" | sort | tr '\n' ' ')
+          echo "処理対象: $CSV_FILES"
+
+          if [ -n "$GOOGLE_CREDENTIALS_JSON" ] && [ -n "$SPREADSHEET_ID" ]; then
+            python main.py $CSV_FILES --format google_sheets --config ../config/settings_ci.yaml
+          else
+            python main.py $CSV_FILES --format excel --output ../output/収支レポート.xlsx
+          fi
 
       - name: Excel出力をアーティファクトとして保存
-        if: steps.check-last-day.outputs.is_last_day == 'true'
+        if: steps.check-last-day.outputs.is_last_day == 'true' && steps.check-csv.outputs.csv_count != '0'
         uses: actions/upload-artifact@v4
         with:
-          name: monthly-report-${{ steps.target-date.outputs.year }}-${{ steps.target-date.outputs.month }}
+          name: monthly-report
           path: output/*.xlsx
           retention-days: 90
           if-no-files-found: ignore

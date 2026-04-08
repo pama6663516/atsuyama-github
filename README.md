@@ -12,8 +12,7 @@
 - **月別カテゴリ**: 月×カテゴリのクロス集計表（グラフ作成用）
 - **取引一覧**: 全取引の詳細リスト
 - Google Sheets / Excel 両方に対応
-- **毎月末自動実行**: GitHub Actions で自動取得・集計・出力
-- マネーフォワードからのCSV自動ダウンロード（Playwright使用）
+- **自動実行**: CSVをpushするだけでGoogle Sheetsに自動反映（GitHub Actions）
 
 ## セットアップ
 
@@ -32,7 +31,7 @@ pip install -r requirements.txt
 ### 2. Excel出力（すぐ使える）
 
 ```bash
-python src/main.py sample_data/sample.csv --format excel
+python src/main.py data/sample.csv --format excel
 # → output/収支レポート.xlsx に出力されます
 
 # 出力先を指定
@@ -68,6 +67,52 @@ cp config/settings.yaml.example config/settings.yaml
 python src/main.py data.csv --format google_sheets --config config/settings.yaml
 ```
 
+## 自動実行（GitHub Actions）
+
+CSVファイルをリポジトリの `data/` フォルダにpushするだけで、自動的にGoogle Sheetsに収支データが書き出されます。
+
+### 毎月の流れ
+
+```
+1. マネーフォワードからCSVをダウンロード（30秒）
+2. data/ フォルダに入れてgit push
+3. → GitHub Actionsが自動で集計 → Google Sheetsに反映!
+```
+
+### セットアップ手順
+
+#### 1. Google Cloud の設定
+
+1. [Google Cloud Console](https://console.cloud.google.com/) → 新規プロジェクト作成
+2. 「APIとサービス」→「ライブラリ」→ **Google Sheets API** と **Google Drive API** を有効化
+3. 「認証情報」→「認証情報を作成」→「サービスアカウント」→ 作成
+4. 作成したサービスアカウント →「キー」タブ →「鍵を追加」→「JSON」→ ダウンロード
+5. 出力先のGoogle Sheetsを新規作成
+6. スプレッドシートの「共有」で、サービスアカウントのメールアドレス（JSON内の `client_email`）を**編集者として追加**
+
+#### 2. GitHub Secrets の登録
+
+リポジトリの **Settings** → **Secrets and variables** → **Actions** で登録:
+
+| Secret 名 | 内容 |
+|---|---|
+| `GOOGLE_CREDENTIALS_JSON` | ダウンロードしたJSONファイルの中身を全文貼り付け |
+| `SPREADSHEET_ID` | スプレッドシートURLの `/d/` と `/edit` の間の文字列 |
+
+#### 3. CSVをpushして自動実行
+
+```bash
+# マネーフォワードからダウンロードしたCSVを data/ に配置
+cp ~/Downloads/収入・支出詳細_2025.csv data/
+
+# pushするだけで自動実行!
+git add data/
+git commit -m "2025年4月の収支データ"
+git push
+```
+
+Actions タブで実行状況を確認できます。手動実行も「Run workflow」から可能です。
+
 ## 出力シート構成
 
 | シート名 | 内容 |
@@ -78,72 +123,26 @@ python src/main.py data.csv --format google_sheets --config config/settings.yaml
 | 月別カテゴリ | 月×大項目カテゴリのクロス集計 |
 | 取引一覧 | 全取引の詳細データ |
 
-## 毎月末の自動実行（GitHub Actions）
-
-毎月末日の23:00 (JST) に自動で「データ取得 → 集計 → スプレッドシート出力」を行います。
-
-### セットアップ手順
-
-1. **GitHub リポジトリの Settings → Secrets and variables → Actions** で以下を登録:
-
-| Secret 名 | 内容 |
-|---|---|
-| `MF_EMAIL` | マネーフォワードのログインメールアドレス |
-| `MF_PASSWORD` | マネーフォワードのログインパスワード |
-| `GOOGLE_CREDENTIALS_JSON` | サービスアカウントJSONファイルの中身をそのまま貼り付け |
-| `SPREADSHEET_ID` | 出力先Google SheetsのスプレッドシートID |
-
-2. **出力先スプレッドシートの共有設定**で、サービスアカウントのメールアドレス（`xxx@xxx.iam.gserviceaccount.com`）に編集権限を付与
-
-3. 設定完了! 毎月末に自動実行されます
-
-### 手動実行
-
-GitHub の Actions タブから「月次収支レポート自動生成」ワークフローを選択し、「Run workflow」で手動実行も可能です。年月を指定して過去のデータも取得できます。
-
-### ローカルでの自動実行
-
-```bash
-# Playwright のインストール
-pip install playwright
-playwright install chromium
-
-# 環境変数を設定
-export MF_EMAIL="your@email.com"
-export MF_PASSWORD="yourpassword"
-export SPREADSHEET_ID="your-spreadsheet-id"
-export GOOGLE_CREDENTIALS_PATH="config/credentials.json"
-
-# 当月のデータを自動取得・集計・出力
-python src/auto_run.py
-
-# 特定の月を指定
-python src/auto_run.py --year 2025 --month 3
-
-# Excel出力のみ（Google Sheets設定不要）
-python src/auto_run.py --format excel
-```
-
 ## プロジェクト構成
 
 ```
-├── config/
-│   └── settings.yaml.example  # 設定ファイルのテンプレート
-├── sample_data/
-│   └── sample.csv             # サンプルデータ
 ├── .github/workflows/
-│   └── monthly_report.yml     # 毎月末自動実行ワークフロー
+│   └── monthly_report.yml     # 自動実行ワークフロー（CSV push時 + 毎月末）
+├── data/                      # ← ここにCSVを入れてpush
 ├── src/
-│   ├── main.py                # メインスクリプト（CLI・手動用）
-│   ├── auto_run.py            # 自動実行スクリプト（取得→集計→出力）
+│   ├── main.py                # メインスクリプト（CLI）
 │   ├── moneyforward/
 │   │   ├── csv_parser.py      # CSVファイル解析
-│   │   └── scraper.py         # MF自動ログイン＆CSVダウンロード
+│   │   └── scraper.py         # ローカル用: MF自動ログイン＆CSVダウンロード
 │   ├── processor/
 │   │   └── data_processor.py  # データ集計・分析
 │   └── spreadsheet/
 │       ├── sheets_writer.py   # Google Sheets出力
 │       └── excel_writer.py    # Excel出力
+├── config/
+│   └── settings.yaml.example  # 設定ファイルのテンプレート
+├── sample_data/
+│   └── sample.csv             # サンプルデータ
 ├── requirements.txt
 └── README.md
 ```

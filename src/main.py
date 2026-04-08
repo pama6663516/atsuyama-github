@@ -21,6 +21,7 @@
 """
 
 import argparse
+import os
 import sys
 from pathlib import Path
 
@@ -72,25 +73,41 @@ def main():
 
 def _output_google_sheets(result: dict, config: dict, args) -> None:
     """Google Sheetsに出力する。"""
+    import json
+    import tempfile
     from spreadsheet.sheets_writer import write_to_sheets
 
     gs_config = config.get("google_sheets", {})
     credentials_path = gs_config.get("credentials_path", "config/credentials.json")
-    spreadsheet_id = gs_config.get("spreadsheet_id", "")
+
+    # 環境変数から認証情報を取得（CI環境用）
+    credentials_json = os.environ.get("GOOGLE_CREDENTIALS_JSON", "")
+    if credentials_json:
+        tmp = Path(tempfile.mktemp(suffix=".json"))
+        tmp.write_text(credentials_json)
+        credentials_path = str(tmp)
+
+    spreadsheet_id = (
+        os.environ.get("SPREADSHEET_ID", "")
+        or gs_config.get("spreadsheet_id", "")
+    )
 
     if not spreadsheet_id:
         print("エラー: spreadsheet_id が設定されていません", file=sys.stderr)
-        print("config/settings.yaml に spreadsheet_id を設定してください", file=sys.stderr)
+        print("config/settings.yaml または環境変数 SPREADSHEET_ID を設定してください", file=sys.stderr)
         sys.exit(1)
 
     if not Path(credentials_path).exists():
         print(f"エラー: 認証ファイルが見つかりません: {credentials_path}", file=sys.stderr)
-        print("Google Cloud Console からサービスアカウントキーを取得してください", file=sys.stderr)
         sys.exit(1)
 
     print("Google Sheetsに書き出し中...")
     url = write_to_sheets(result, credentials_path, spreadsheet_id)
     print(f"完了! スプレッドシート: {url}")
+
+    # 一時ファイルのクリーンアップ
+    if credentials_json:
+        tmp.unlink(missing_ok=True)
 
 
 def _output_excel(result: dict, config: dict, args) -> None:

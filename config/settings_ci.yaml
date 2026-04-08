@@ -1,0 +1,15 @@
+# CI環境用の設定ファイル
+# GOOGLE_CREDENTIALS_JSON と SPREADSHEET_ID は環境変数から取得
+
+google_sheets:
+  credentials_path: "/tmp/gcp_credentials.json"
+  spreadsheet_id: ""
+
+output:
+  format: "google_sheets"
+  excel_path: "../output/収支レポート.xlsx"
+
+processing:
+  exclude_transfers: true
+  start_month: ""
+  end_month: ""
