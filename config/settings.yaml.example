@@ -1,0 +1,25 @@
+# マネーフォワード → スプレッドシート連携 設定ファイル
+# このファイルを settings.yaml にコピーして使用してください
+
+# Google Sheets 設定
+google_sheets:
+  # サービスアカウントの認証情報JSONファイルのパス
+  credentials_path: "config/credentials.json"
+  # 書き出し先のスプレッドシートID（URLの /d/ と /edit の間の文字列）
+  spreadsheet_id: "your-spreadsheet-id-here"
+
+# 出力設定
+output:
+  # 出力形式: "google_sheets" または "excel"
+  format: "google_sheets"
+  # Excel出力時のファイルパス
+  excel_path: "output/収支レポート.xlsx"
+
+# データ処理設定
+processing:
+  # 振替取引を除外するか
+  exclude_transfers: true
+  # 集計の開始月 (YYYY-MM形式、空欄で全期間)
+  start_month: ""
+  # 集計の終了月 (YYYY-MM形式、空欄で全期間)
+  end_month: ""

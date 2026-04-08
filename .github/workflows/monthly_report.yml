@@ -1,0 +1,94 @@
+name: 月次収支レポート自動生成
+
+# 毎月28〜31日の23:00 (JST) に実行し、月末かどうかをチェック
+on:
+  schedule:
+    # UTC 14:00 = JST 23:00（毎月28-31日に実行）
+    - cron: "0 14 28-31 * *"
+  workflow_dispatch:
+    inputs:
+      year:
+        description: "対象年 (例: 2025)"
+        required: false
+      month:
+        description: "対象月 (例: 3)"
+        required: false
+
+jobs:
+  generate-report:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      # 月末チェック（スケジュール実行時のみ）
+      - name: 月末日チェック
+        id: check-last-day
+        run: |
+          if [ "${{ github.event_name }}" = "schedule" ]; then
+            TODAY=$(date -u +%d)
+            TOMORROW=$(date -u -d "+1 day" +%d)
+            # 明日が1日 = 今日が月末
+            if [ "$TOMORROW" != "01" ]; then
+              echo "今日は月末ではありません (${TODAY}日)。スキップします。"
+              echo "is_last_day=false" >> "$GITHUB_OUTPUT"
+            else
+              echo "月末日です (${TODAY}日)。レポートを生成します。"
+              echo "is_last_day=true" >> "$GITHUB_OUTPUT"
+            fi
+          else
+            echo "手動実行のため、月末チェックをスキップします。"
+            echo "is_last_day=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: リポジトリをチェックアウト
+        if: steps.check-last-day.outputs.is_last_day == 'true'
+        uses: actions/checkout@v4
+
+      - name: Python セットアップ
+        if: steps.check-last-day.outputs.is_last_day == 'true'
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+
+      - name: 依存パッケージをインストール
+        if: steps.check-last-day.outputs.is_last_day == 'true'
+        run: |
+          pip install -r requirements.txt
+          pip install playwright
+          playwright install chromium
+          playwright install-deps
+
+      - name: 対象年月を決定
+        if: steps.check-last-day.outputs.is_last_day == 'true'
+        id: target-date
+        run: |
+          if [ -n "${{ inputs.year }}" ] && [ -n "${{ inputs.month }}" ]; then
+            echo "year=${{ inputs.year }}" >> "$GITHUB_OUTPUT"
+            echo "month=${{ inputs.month }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "year=$(date -u +%Y)" >> "$GITHUB_OUTPUT"
+            echo "month=$(date -u +%-m)" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: 月次レポートを生成
+        if: steps.check-last-day.outputs.is_last_day == 'true'
+        working-directory: src
+        env:
+          MF_EMAIL: ${{ secrets.MF_EMAIL }}
+          MF_PASSWORD: ${{ secrets.MF_PASSWORD }}
+          GOOGLE_CREDENTIALS_JSON: ${{ secrets.GOOGLE_CREDENTIALS_JSON }}
+          SPREADSHEET_ID: ${{ secrets.SPREADSHEET_ID }}
+        run: |
+          python auto_run.py \
+            --year ${{ steps.target-date.outputs.year }} \
+            --month ${{ steps.target-date.outputs.month }}
+
+      - name: Excel出力をアーティファクトとして保存
+        if: steps.check-last-day.outputs.is_last_day == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: monthly-report-${{ steps.target-date.outputs.year }}-${{ steps.target-date.outputs.month }}
+          path: output/*.xlsx
+          retention-days: 90
+          if-no-files-found: ignore
