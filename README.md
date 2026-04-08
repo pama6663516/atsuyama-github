@@ -12,6 +12,8 @@
 - **月別カテゴリ**: 月×カテゴリのクロス集計表（グラフ作成用）
 - **取引一覧**: 全取引の詳細リスト
 - Google Sheets / Excel 両方に対応
+- **毎月末自動実行**: GitHub Actions で自動取得・集計・出力
+- マネーフォワードからのCSV自動ダウンロード（Playwright使用）
 
 ## セットアップ
 
@@ -76,6 +78,52 @@ python src/main.py data.csv --format google_sheets --config config/settings.yaml
 | 月別カテゴリ | 月×大項目カテゴリのクロス集計 |
 | 取引一覧 | 全取引の詳細データ |
 
+## 毎月末の自動実行（GitHub Actions）
+
+毎月末日の23:00 (JST) に自動で「データ取得 → 集計 → スプレッドシート出力」を行います。
+
+### セットアップ手順
+
+1. **GitHub リポジトリの Settings → Secrets and variables → Actions** で以下を登録:
+
+| Secret 名 | 内容 |
+|---|---|
+| `MF_EMAIL` | マネーフォワードのログインメールアドレス |
+| `MF_PASSWORD` | マネーフォワードのログインパスワード |
+| `GOOGLE_CREDENTIALS_JSON` | サービスアカウントJSONファイルの中身をそのまま貼り付け |
+| `SPREADSHEET_ID` | 出力先Google SheetsのスプレッドシートID |
+
+2. **出力先スプレッドシートの共有設定**で、サービスアカウントのメールアドレス（`xxx@xxx.iam.gserviceaccount.com`）に編集権限を付与
+
+3. 設定完了! 毎月末に自動実行されます
+
+### 手動実行
+
+GitHub の Actions タブから「月次収支レポート自動生成」ワークフローを選択し、「Run workflow」で手動実行も可能です。年月を指定して過去のデータも取得できます。
+
+### ローカルでの自動実行
+
+```bash
+# Playwright のインストール
+pip install playwright
+playwright install chromium
+
+# 環境変数を設定
+export MF_EMAIL="your@email.com"
+export MF_PASSWORD="yourpassword"
+export SPREADSHEET_ID="your-spreadsheet-id"
+export GOOGLE_CREDENTIALS_PATH="config/credentials.json"
+
+# 当月のデータを自動取得・集計・出力
+python src/auto_run.py
+
+# 特定の月を指定
+python src/auto_run.py --year 2025 --month 3
+
+# Excel出力のみ（Google Sheets設定不要）
+python src/auto_run.py --format excel
+```
+
 ## プロジェクト構成
 
 ```
@@ -83,10 +131,14 @@ python src/main.py data.csv --format google_sheets --config config/settings.yaml
 │   └── settings.yaml.example  # 設定ファイルのテンプレート
 ├── sample_data/
 │   └── sample.csv             # サンプルデータ
+├── .github/workflows/
+│   └── monthly_report.yml     # 毎月末自動実行ワークフロー
 ├── src/
-│   ├── main.py                # メインスクリプト（CLI）
+│   ├── main.py                # メインスクリプト（CLI・手動用）
+│   ├── auto_run.py            # 自動実行スクリプト（取得→集計→出力）
 │   ├── moneyforward/
-│   │   └── csv_parser.py      # CSVファイル解析
+│   │   ├── csv_parser.py      # CSVファイル解析
+│   │   └── scraper.py         # MF自動ログイン＆CSVダウンロード
 │   ├── processor/
 │   │   └── data_processor.py  # データ集計・分析
 │   └── spreadsheet/
