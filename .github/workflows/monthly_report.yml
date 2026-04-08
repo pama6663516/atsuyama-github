@@ -1,6 +1,5 @@
 name: 月次収支レポート自動生成
 
-# 毎月28〜31日の23:00 (JST) に実行し、月末かどうかをチェック
 on:
   schedule:
     # UTC 14:00 = JST 23:00（毎月28-31日に実行）
@@ -14,20 +13,21 @@ on:
         description: "対象月 (例: 3)"
         required: false
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 jobs:
   generate-report:
     runs-on: ubuntu-latest
     timeout-minutes: 15
 
     steps:
-      # 月末チェック（スケジュール実行時のみ）
       - name: 月末日チェック
         id: check-last-day
         run: |
           if [ "${{ github.event_name }}" = "schedule" ]; then
             TODAY=$(date -u +%d)
             TOMORROW=$(date -u -d "+1 day" +%d)
-            # 明日が1日 = 今日が月末
             if [ "$TOMORROW" != "01" ]; then
               echo "今日は月末ではありません (${TODAY}日)。スキップします。"
               echo "is_last_day=false" >> "$GITHUB_OUTPUT"
@@ -56,8 +56,27 @@ jobs:
         run: |
           pip install -r requirements.txt
           pip install playwright
-          playwright install chromium
-          playwright install-deps
+          playwright install --with-deps chromium
+
+      - name: Secrets設定チェック
+        if: steps.check-last-day.outputs.is_last_day == 'true'
+        env:
+          MF_EMAIL: ${{ secrets.MF_EMAIL }}
+          MF_PASSWORD: ${{ secrets.MF_PASSWORD }}
+          GOOGLE_CREDENTIALS_JSON: ${{ secrets.GOOGLE_CREDENTIALS_JSON }}
+          SPREADSHEET_ID: ${{ secrets.SPREADSHEET_ID }}
+        run: |
+          echo "=== Secrets設定状況 ==="
+          if [ -z "$MF_EMAIL" ]; then echo "❌ MF_EMAIL が未設定です"; else echo "✅ MF_EMAIL 設定済み"; fi
+          if [ -z "$MF_PASSWORD" ]; then echo "❌ MF_PASSWORD が未設定です"; else echo "✅ MF_PASSWORD 設定済み"; fi
+          if [ -z "$GOOGLE_CREDENTIALS_JSON" ]; then echo "❌ GOOGLE_CREDENTIALS_JSON が未設定です"; else echo "✅ GOOGLE_CREDENTIALS_JSON 設定済み"; fi
+          if [ -z "$SPREADSHEET_ID" ]; then echo "❌ SPREADSHEET_ID が未設定です"; else echo "✅ SPREADSHEET_ID 設定済み"; fi
+
+          if [ -z "$MF_EMAIL" ] || [ -z "$MF_PASSWORD" ]; then
+            echo ""
+            echo "::error::MF_EMAIL または MF_PASSWORD が設定されていません。Settings → Secrets → Actions で登録してください。"
+            exit 1
+          fi
 
       - name: 対象年月を決定
         if: steps.check-last-day.outputs.is_last_day == 'true'
@@ -70,8 +89,9 @@ jobs:
             echo "year=$(date -u +%Y)" >> "$GITHUB_OUTPUT"
             echo "month=$(date -u +%-m)" >> "$GITHUB_OUTPUT"
           fi
+          echo "対象: $(cat "$GITHUB_OUTPUT")"
 
-      - name: 月次レポートを生成
+      - name: レポートを生成する
         if: steps.check-last-day.outputs.is_last_day == 'true'
         working-directory: src
         env:
@@ -79,6 +99,7 @@ jobs:
           MF_PASSWORD: ${{ secrets.MF_PASSWORD }}
           GOOGLE_CREDENTIALS_JSON: ${{ secrets.GOOGLE_CREDENTIALS_JSON }}
           SPREADSHEET_ID: ${{ secrets.SPREADSHEET_ID }}
+          PLAYWRIGHT_BROWSERS_PATH: /home/runner/.cache/ms-playwright
         run: |
           python auto_run.py \
             --year ${{ steps.target-date.outputs.year }} \

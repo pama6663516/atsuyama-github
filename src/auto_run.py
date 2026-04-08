@@ -46,12 +46,23 @@ def main():
 
     # Step 1: マネーフォワードからCSVダウンロード
     print("[1/3] マネーフォワードからデータを取得中...")
-    csv_path = download_csv(
-        year=year,
-        month=month,
-        download_dir="downloads",
-        headless=True,
-    )
+    try:
+        csv_path = download_csv(
+            year=year,
+            month=month,
+            download_dir="downloads",
+            headless=True,
+        )
+    except Exception as e:
+        print(f"  エラー: マネーフォワードからのデータ取得に失敗しました", file=sys.stderr)
+        print(f"  詳細: {e}", file=sys.stderr)
+        print(f"", file=sys.stderr)
+        print(f"  よくある原因:", file=sys.stderr)
+        print(f"    - MF_EMAIL / MF_PASSWORD が正しくない", file=sys.stderr)
+        print(f"    - マネーフォワードの2段階認証が有効になっている", file=sys.stderr)
+        print(f"    - マネーフォワード側のUI変更", file=sys.stderr)
+        print(f"    - CI環境からのアクセスがブロックされている", file=sys.stderr)
+        sys.exit(1)
     print(f"  CSV取得完了: {csv_path}")
     print()
 
