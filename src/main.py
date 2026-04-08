@@ -73,19 +73,15 @@ def main():
 
 def _output_google_sheets(result: dict, config: dict, args) -> None:
     """Google Sheetsに出力する。"""
-    import json
-    import tempfile
     from spreadsheet.sheets_writer import write_to_sheets
 
     gs_config = config.get("google_sheets", {})
-    credentials_path = gs_config.get("credentials_path", "config/credentials.json")
 
-    # 環境変数から認証情報を取得（CI環境用）
-    credentials_json = os.environ.get("GOOGLE_CREDENTIALS_JSON", "")
-    if credentials_json:
-        tmp = Path(tempfile.mktemp(suffix=".json"))
-        tmp.write_text(credentials_json)
-        credentials_path = str(tmp)
+    # 認証ファイルのパス: 環境変数 > 設定ファイル > デフォルト
+    credentials_path = (
+        os.environ.get("GOOGLE_CREDENTIALS_PATH", "")
+        or gs_config.get("credentials_path", "config/credentials.json")
+    )
 
     spreadsheet_id = (
         os.environ.get("SPREADSHEET_ID", "")
@@ -104,10 +100,6 @@ def _output_google_sheets(result: dict, config: dict, args) -> None:
     print("Google Sheetsに書き出し中...")
     url = write_to_sheets(result, credentials_path, spreadsheet_id)
     print(f"完了! スプレッドシート: {url}")
-
-    # 一時ファイルのクリーンアップ
-    if credentials_json:
-        tmp.unlink(missing_ok=True)
 
 
 def _output_excel(result: dict, config: dict, args) -> None:

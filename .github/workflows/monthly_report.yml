@@ -80,20 +80,38 @@ jobs:
           if [ -z "$SPREADSHEET_ID" ]; then echo "⚠ SPREADSHEET_ID 未設定 → Excel出力のみ"; HAS_SHEETS=false; fi
           echo "has_sheets=$HAS_SHEETS" >> "$GITHUB_OUTPUT"
 
+      - name: Google認証ファイルを準備
+        if: steps.check-last-day.outputs.is_last_day == 'true' && steps.check-csv.outputs.csv_count != '0'
+        env:
+          GOOGLE_CREDENTIALS_JSON: ${{ secrets.GOOGLE_CREDENTIALS_JSON }}
+        run: |
+          if [ -n "$GOOGLE_CREDENTIALS_JSON" ]; then
+            echo "$GOOGLE_CREDENTIALS_JSON" > /tmp/gcp_credentials.json
+            # JSONとして正しいか検証
+            if python3 -c "import json; json.load(open('/tmp/gcp_credentials.json'))"; then
+              echo "✅ Google認証ファイルの準備完了"
+            else
+              echo "::error::GOOGLE_CREDENTIALS_JSON の内容が正しいJSON形式ではありません"
+              echo "Settings → Secrets で、ダウンロードしたJSONファイルの中身をそのまま貼り付けてください"
+              rm -f /tmp/gcp_credentials.json
+            fi
+          fi
+
       - name: レポートを生成する
         if: steps.check-last-day.outputs.is_last_day == 'true' && steps.check-csv.outputs.csv_count != '0'
         working-directory: src
         env:
-          GOOGLE_CREDENTIALS_JSON: ${{ secrets.GOOGLE_CREDENTIALS_JSON }}
           SPREADSHEET_ID: ${{ secrets.SPREADSHEET_ID }}
+          GOOGLE_CREDENTIALS_PATH: /tmp/gcp_credentials.json
         run: |
-          # data/ 内の全CSVを結合して処理
           CSV_FILES=$(find ../data/ -name "*.csv" | sort | tr '\n' ' ')
           echo "処理対象: $CSV_FILES"
 
-          if [ -n "$GOOGLE_CREDENTIALS_JSON" ] && [ -n "$SPREADSHEET_ID" ]; then
+          if [ -f "/tmp/gcp_credentials.json" ] && [ -n "$SPREADSHEET_ID" ]; then
+            echo "Google Sheetsに出力します"
             python main.py $CSV_FILES --format google_sheets --config ../config/settings_ci.yaml
           else
+            echo "Excel出力に切り替えます"
             python main.py $CSV_FILES --format excel --output ../output/収支レポート.xlsx
           fi
 
