@@ -1,4 +1,4 @@
-# マネーフォワード収支CSV → Google Sheets 自動アップロードスクリプト (Windows版)
+﻿# マネーフォワード収支CSV → Google Sheets 自動アップロードスクリプト (Windows版)
 #
 # 使い方:
 #   .\scripts\upload_csv.ps1 ~\Downloads\収入・支出詳細_*.csv
