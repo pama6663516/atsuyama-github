@@ -104,15 +104,16 @@ jobs:
           SPREADSHEET_ID: ${{ secrets.SPREADSHEET_ID }}
           GOOGLE_CREDENTIALS_PATH: /tmp/gcp_credentials.json
         run: |
-          CSV_FILES=$(find ../data/ -name "*.csv" | sort | tr '\n' ' ')
-          echo "処理対象: $CSV_FILES"
+          # スペースや括弧を含むファイル名に対応
+          mapfile -t CSV_ARRAY < <(find ../data/ -name "*.csv" | sort)
+          echo "処理対象: ${CSV_ARRAY[*]}"
 
           if [ -f "/tmp/gcp_credentials.json" ] && [ -n "$SPREADSHEET_ID" ]; then
             echo "Google Sheetsに出力します"
-            python main.py $CSV_FILES --format google_sheets --config ../config/settings_ci.yaml
+            python main.py "${CSV_ARRAY[@]}" --format google_sheets --config ../config/settings_ci.yaml
           else
             echo "Excel出力に切り替えます"
-            python main.py $CSV_FILES --format excel --output ../output/収支レポート.xlsx
+            python main.py "${CSV_ARRAY[@]}" --format excel --output ../output/収支レポート.xlsx
           fi
 
       - name: Excel出力をアーティファクトとして保存
