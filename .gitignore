@@ -13,9 +13,10 @@ venv/
 config/credentials.json
 config/settings.yaml
 
-# 出力ファイル（.xlsxはワークフローが自動コミットするため除外しない）
+# 出力ファイル（ワークフローが自動コミットする.xlsxと.gitkeepのみ許可）
 output/*
 !output/*.xlsx
+!output/.gitkeep
 
 # IDE
 .vscode/
