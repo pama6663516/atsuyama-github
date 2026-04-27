@@ -13,8 +13,9 @@ venv/
 config/credentials.json
 config/settings.yaml
 
-# 出力ファイル
-output/
+# 出力ファイル（.xlsxはワークフローが自動コミットするため除外しない）
+output/*
+!output/*.xlsx
 
 # IDE
 .vscode/

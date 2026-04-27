@@ -108,12 +108,29 @@ jobs:
           mapfile -t CSV_ARRAY < <(find ../data/ -name "*.csv" | sort)
           echo "処理対象: ${CSV_ARRAY[*]}"
 
+          # Google Sheetsに出力
           if [ -f "/tmp/gcp_credentials.json" ] && [ -n "$SPREADSHEET_ID" ]; then
             echo "Google Sheetsに出力します"
             python main.py "${CSV_ARRAY[@]}" --format google_sheets --config ../config/settings_ci.yaml
+          fi
+
+          # Excelも常に生成（リポジトリに保存用）
+          mkdir -p ../output
+          MONTH=$(date +"%Y年%m月")
+          echo "Excel出力: マネーフォワード_${MONTH}_収支レポート.xlsx"
+          python main.py "${CSV_ARRAY[@]}" --format excel --output "../output/マネーフォワード_${MONTH}_収支レポート.xlsx"
+
+      - name: Excelレポートをリポジトリにコミット
+        if: steps.check-last-day.outputs.is_last_day == 'true' && steps.check-csv.outputs.csv_count != '0'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add output/*.xlsx
+          if git diff --cached --quiet; then
+            echo "変更なし、コミットをスキップ"
           else
-            echo "Excel出力に切り替えます"
-            python main.py "${CSV_ARRAY[@]}" --format excel --output ../output/収支レポート.xlsx
+            git commit -m "auto: $(date +'%Y年%m月')の収支レポートを生成 [skip ci]"
+            git push
           fi
 
       - name: Excel出力をアーティファクトとして保存
