@@ -97,27 +97,39 @@ jobs:
             fi
           fi
 
-      - name: レポートを生成する
+      - name: CSVファイル一覧を取得
         if: steps.check-last-day.outputs.is_last_day == 'true' && steps.check-csv.outputs.csv_count != '0'
+        id: csv-list
+        run: |
+          mapfile -t CSV_ARRAY < <(find data/ -name "*.csv" | sort)
+          echo "処理対象: ${CSV_ARRAY[*]}"
+          # ステップ間でCSVリストを共有
+          printf '%s\n' "${CSV_ARRAY[@]}" > /tmp/csv_files.txt
+
+      - name: Google Sheetsにレポート出力
+        if: steps.check-last-day.outputs.is_last_day == 'true' && steps.check-csv.outputs.csv_count != '0'
+        continue-on-error: true
         working-directory: src
         env:
           SPREADSHEET_ID: ${{ secrets.SPREADSHEET_ID }}
           GOOGLE_CREDENTIALS_PATH: /tmp/gcp_credentials.json
         run: |
-          # スペースや括弧を含むファイル名に対応
-          mapfile -t CSV_ARRAY < <(find ../data/ -name "*.csv" | sort)
-          echo "処理対象: ${CSV_ARRAY[*]}"
-
-          # Google Sheetsに出力
           if [ -f "/tmp/gcp_credentials.json" ] && [ -n "$SPREADSHEET_ID" ]; then
             echo "Google Sheetsに出力します"
+            mapfile -t CSV_ARRAY < <(sed 's|^data/|../data/|' /tmp/csv_files.txt)
             python main.py "${CSV_ARRAY[@]}" --format google_sheets --config ../config/settings_ci.yaml
+          else
+            echo "Google Sheets設定がないためスキップ"
           fi
 
-          # Excelも常に生成（リポジトリに保存用）
+      - name: Excelレポート生成
+        if: steps.check-last-day.outputs.is_last_day == 'true' && steps.check-csv.outputs.csv_count != '0'
+        working-directory: src
+        run: |
           mkdir -p ../output
           MONTH=$(date +"%Y年%m月")
           echo "Excel出力: マネーフォワード_${MONTH}_収支レポート.xlsx"
+          mapfile -t CSV_ARRAY < <(sed 's|^data/|../data/|' /tmp/csv_files.txt)
           python main.py "${CSV_ARRAY[@]}" --format excel --output "../output/マネーフォワード_${MONTH}_収支レポート.xlsx"
 
       - name: Excelレポートをリポジトリにコミット
